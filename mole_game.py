@@ -1,9 +1,10 @@
-"""もぐらたたきゲーム (tkinter 版)
+"""アイドルファンサゲーム (tkinter 版)
 
 遊び方:
-    - 「スタート」ボタンを押すとゲームが始まります。
-    - 穴から出てきたモグラをクリック（タップ）して叩きましょう！
-    - 制限時間は 30 秒です。時間内にたくさんのモグラを叩いてハイスコアを目指そう！
+    - 「ライブスタート！」ボタンを押すとゲームが始まります。
+    - 客席からファンサを求める「うちわ」が掲げられます！
+    - うちわをすばやくクリックして、たくさんのファンサを届けましょう！
+    - 制限時間は 30 秒です。
 """
 
 import math
@@ -11,26 +12,36 @@ import random
 import tkinter as tk
 
 # ---- 画面・ゲーム設定 ----
-WINDOW_WIDTH = 600
-WINDOW_HEIGHT = 650
+WINDOW_WIDTH = 640
+WINDOW_HEIGHT = 680
 GAME_TIME = 30  # 制限時間（秒）
 
-# カラーパレット
-COLOR_BG = "#78c850"         # 芝生の緑
-COLOR_HEADER = "#2e7d32"     # ヘッダーの濃い緑
-COLOR_HOLE_OUTER = "#5d4037" # 穴のフチ（土）
-COLOR_HOLE_INNER = "#271c19" # 穴の奥（暗い土）
-COLOR_MOLE = "#8d5b4c"       # モグラの体
-COLOR_MOLE_BELLY = "#d7ccc8" # モグラの口元
-COLOR_NOSE = "#ff8a80"       # モグラの鼻
-COLOR_STAR = "#ffd54f"       # ヒット時の星
-COLOR_BTN = "#ff9800"        # ボタンのオレンジ
-COLOR_BTN_HOVER = "#f57c00"
+# ファンサのメッセージリスト
+FANSA_MESSAGES = [
+    ("ハート\nして💕", "#ff2d75"),
+    ("ウインク\nして😉", "#ffe600"),
+    ("指さして\n👉", "#00d2d3"),
+    ("投げキス\nして😘", "#ff6b81"),
+    ("ピース\nして✌", "#1dd1a1"),
+    ("手を\n振って👋", "#ffa502"),
+    ("バーン\nして🔫", "#ff4757"),
+    ("エアハグ\nして🤗", "#ff9ff3"),
+    ("大好き\n💖", "#e056fd"),
+]
 
-class MoleGame:
+# カラーパレット
+COLOR_BG = "#0d0a1a"          # ライブ会場の暗い客席背景
+COLOR_HEADER = "#1a0826"      # ステージ上部
+COLOR_PENLIGHTS = [
+    "#ff4081", "#00e5ff", "#76ff03", "#ffd600",
+    "#e040fb", "#ff6e40", "#69f0ae", "#40c4ff"
+]
+
+
+class IdolFansaGame:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("もぐらたたきゲーム")
+        self.root.title("🎤 アイドルファンサゲーム ✨")
         self.root.resizable(False, False)
 
         # メインキャンバス
@@ -43,9 +54,9 @@ class MoleGame:
         )
         self.canvas.pack()
 
-        # 穴の配置設定（3行 × 3列 = 9個）
-        self.holes = []
-        self._init_hole_positions()
+        # うちわの配置（3行 × 3列 = 9箇所）
+        self.slots = []
+        self._init_slot_positions()
 
         # ゲーム状態
         self.is_playing = False
@@ -54,142 +65,176 @@ class MoleGame:
         self.timer_id = None
         self.spawn_timer_id = None
 
-        # 各穴のモグラ情報: {"state": "hidden"|"up"|"hit", "tag": str, "hide_id": str}
-        self.moles = []
+        # 各スロットのうちわ情報
+        self.fans = []
         for i in range(9):
-            self.moles.append({
-                "state": "hidden",
-                "tag": f"mole_{i}",
-                "hide_id": None
+            self.fans.append({
+                "state": "hidden",   # "hidden" | "up" | "hit"
+                "tag": f"fan_{i}",
+                "hide_id": None,
+                "msg": "",
+                "color": "#ffe600"
             })
 
-        # イベントバインド
+        # イベント
         self.canvas.bind("<Button-1>", self.on_click)
 
-        # 穴と初期UIを描画
-        self.draw_field()
+        # 背景と初期画面
+        self.draw_live_venue()
         self.show_start_screen()
 
-    def _init_hole_positions(self) -> None:
-        """3x3 の穴の中心座標を計算"""
-        start_x = 110
-        gap_x = 190
-        start_y = 190
-        gap_y = 135
+    def _init_slot_positions(self) -> None:
+        """客席のうちわ位置（3x3）の座標"""
+        start_x = 120
+        gap_x = 200
+        start_y = 200
+        gap_y = 145
 
         for row in range(3):
             for col in range(3):
                 cx = start_x + col * gap_x
                 cy = start_y + row * gap_y
-                self.holes.append((cx, cy))
+                self.slots.append((cx, cy))
 
-    def draw_field(self) -> None:
-        """背景・ヘッダー・穴を描画"""
+    def draw_live_venue(self) -> None:
+        """ライブ会場の背景を描画（スポットライト・客席・ペンライト）"""
         self.canvas.delete("all")
 
-        # 上部ヘッダー帯
+        # 1. ステージ照明（上部からのスポットライト光線）
+        spotlights = [
+            (WINDOW_WIDTH * 0.15, 0, WINDOW_WIDTH * 0.05, WINDOW_HEIGHT, "#ff1493"),
+            (WINDOW_WIDTH * 0.40, 0, WINDOW_WIDTH * 0.35, WINDOW_HEIGHT, "#7928ca"),
+            (WINDOW_WIDTH * 0.60, 0, WINDOW_WIDTH * 0.65, WINDOW_HEIGHT, "#0070f3"),
+            (WINDOW_WIDTH * 0.85, 0, WINDOW_WIDTH * 0.95, WINDOW_HEIGHT, "#00dfd8"),
+        ]
+        for sx, sy, ex, ey, col in spotlights:
+            # 光線の扇形・多角形
+            self.canvas.create_polygon(
+                sx - 20, sy, sx + 20, sy,
+                ex + 80, ey, ex - 80, ey,
+                fill=col, outline="", stipple="gray25"
+            )
+
+        # 2. 客席のペンライト（無数のカラフルな光）
+        random.seed(42)  # ペンライトの配置を固定
+        for _ in range(120):
+            px = random.randint(15, WINDOW_WIDTH - 15)
+            py = random.randint(120, WINDOW_HEIGHT - 20)
+            col = random.choice(COLOR_PENLIGHTS)
+            angle = random.randint(-25, 25)
+            # ペンライトの棒と光
+            rad = math.radians(angle)
+            lx2 = px + 14 * math.sin(rad)
+            ly2 = py - 14 * math.cos(rad)
+            self.canvas.create_line(px, py, lx2, ly2, fill=col, width=3, capstyle="round")
+            # ペンライトの先端の輝き
+            self.canvas.create_oval(lx2 - 2, ly2 - 2, lx2 + 2, ly2 + 2, fill="#ffffff", outline="")
+
+        # 3. 観客のシルエット（客席の雰囲気）
+        for _ in range(40):
+            cx = random.randint(20, WINDOW_WIDTH - 20)
+            cy = random.randint(140, WINDOW_HEIGHT - 10)
+            r = random.randint(14, 22)
+            self.canvas.create_oval(
+                cx - r, cy - r, cx + r, cy + r,
+                fill="#07040d", outline=""
+            )
+        random.seed()  # ランダムシード解除
+
+        # 4. 各座席ブロックの足場（目印）
+        for cx, cy in self.slots:
+            self.canvas.create_oval(
+                cx - 65, cy + 30, cx + 65, cy + 50,
+                fill="#05030a", outline="#231738", width=1
+            )
+
+        # 5. 上部ヘッダー（ライブステージバー）
         self.canvas.create_rectangle(
-            0, 0, WINDOW_WIDTH, 90,
-            fill=COLOR_HEADER, outline=""
+            0, 0, WINDOW_WIDTH, 85,
+            fill=COLOR_HEADER, outline="#ff2d75", width=2
         )
 
         # ヘッダーテキスト
         self.canvas.create_text(
-            15, 30, anchor="w",
-            text="🔨 もぐらたたき",
+            15, 25, anchor="w",
+            text="🎤 LIVE STAGE",
+            fill="#ff77a9",
+            font=("Meiryo", 13, "bold")
+        )
+        self.canvas.create_text(
+            15, 55, anchor="w",
+            text="✨ ファンサバトル！",
             fill="#ffffff",
-            font=("Meiryo", 18, "bold")
+            font=("Meiryo", 16, "bold")
         )
         self.time_text = self.canvas.create_text(
-            350, 45, anchor="center",
+            370, 42, anchor="center",
             text=f"残り時間: {self.time_left}秒",
             fill="#ffffff",
             font=("Meiryo", 16, "bold")
         )
         self.score_text = self.canvas.create_text(
-            510, 45, anchor="center",
-            text=f"スコア: {self.score}",
-            fill="#ffeb3b",
-            font=("Meiryo", 18, "bold")
+            530, 42, anchor="center",
+            text=f"ファンサ: {self.score}回",
+            fill="#ffe600",
+            font=("Meiryo", 17, "bold")
         )
 
-        # 芝生の装飾（小さな草の房）
-        grass_positions = [
-            (40, 120), (550, 140), (280, 120),
-            (30, 270), (560, 280), (25, 430),
-            (570, 450), (180, 560), (420, 560)
-        ]
-        for gx, gy in grass_positions:
-            self._draw_grass(gx, gy)
-
-        # 穴の描画（9箇所）
-        for i, (cx, cy) in enumerate(self.holes):
-            # 穴の外枠（盛り上がった土）
-            self.canvas.create_oval(
-                cx - 75, cy - 25, cx + 75, cy + 30,
-                fill=COLOR_HOLE_OUTER, outline="#3e2723", width=2
-            )
-            # 穴の内部（影・深さ）
-            self.canvas.create_oval(
-                cx - 65, cy - 18, cx + 65, cy + 22,
-                fill=COLOR_HOLE_INNER, outline=""
-            )
-
-    def _draw_grass(self, x: float, y: float) -> None:
-        """草の飾りを描画"""
-        self.canvas.create_line(x, y, x - 6, y - 10, fill="#558b2f", width=3, capstyle="round")
-        self.canvas.create_line(x, y, x, y - 13, fill="#689f38", width=3, capstyle="round")
-        self.canvas.create_line(x, y, x + 6, y - 9, fill="#558b2f", width=3, capstyle="round")
-
     def show_start_screen(self) -> None:
-        """スタート画面（ゲーム開始前）の表示"""
+        """スタート画面（ゲーム開始前）"""
         self.overlay_tag = "start_overlay"
-        # 半透明風の暗幕
+
+        # ポップアップパネル
         self.canvas.create_rectangle(
-            60, 130, WINDOW_WIDTH - 60, 550,
-            fill="#ffffff", outline="#2e7d32", width=4,
+            60, 110, WINDOW_WIDTH - 60, 580,
+            fill="#160d29", outline="#ff2d75", width=4,
             tags=self.overlay_tag
         )
 
         # タイトル & 説明
         self.canvas.create_text(
-            WINDOW_WIDTH / 2, 200,
-            text="★ もぐらたたき ★",
-            fill="#2e7d32",
-            font=("Meiryo", 26, "bold"),
+            WINDOW_WIDTH / 2, 160,
+            text="💖 アイドルファンサゲーム 💖",
+            fill="#ff77a9",
+            font=("Meiryo", 22, "bold"),
             tags=self.overlay_tag
         )
         self.canvas.create_text(
-            WINDOW_WIDTH / 2, 260,
-            text="制限時間は 30 秒！\n出てきたモグラをすばやくクリックして叩こう！",
-            fill="#333333",
-            font=("Meiryo", 14),
+            WINDOW_WIDTH / 2, 220,
+            text="あなたは今、満員のライブステージに立っています！\n客席から次々と掲げられる「うちわ」を見つけて、\nクリックでファンサ（ハート・投げキッス等）を届けよう！\n\n制限時間は 30 秒です！",
+            fill="#f8f9fa",
+            font=("Meiryo", 12),
             justify="center",
             tags=self.overlay_tag
         )
 
-        # モグラの見本イラストを中央に描画
+        # うちわの見本を中央に描画
         sample_cx = WINDOW_WIDTH / 2
-        sample_cy = 360
-        self.draw_mole_at(sample_cx, sample_cy, tag=self.overlay_tag, is_hit=False)
+        sample_cy = 380
+        self.draw_uchiwa_at(sample_cx, sample_cy, "ハート\nして💕", "#ff2d75", tag=self.overlay_tag, is_hit=False)
 
         # スタートボタン
         self._create_button(
-            WINDOW_WIDTH / 2, 470,
-            text="ゲームスタート！",
+            WINDOW_WIDTH / 2, 510,
+            text="ライブスタート！🎤",
             command=self.start_game,
-            tags=self.overlay_tag
+            tags=self.overlay_tag,
+            btn_color="#ff2d75",
+            hover_color="#e01058"
         )
 
-    def _create_button(self, cx: float, cy: float, text: str, command, tags: str) -> None:
-        """キャンバス上に可愛い角丸風ボタンを作成"""
-        w, h = 180, 50
+    def _create_button(
+        self, cx: float, cy: float, text: str, command, tags: str,
+        btn_color="#ff2d75", hover_color="#e01058"
+    ) -> None:
+        """可愛いボタンの作成"""
+        w, h = 220, 52
         x1, y1 = cx - w / 2, cy - h / 2
         x2, y2 = cx + w / 2, cy + h / 2
 
         btn_bg = self.canvas.create_rectangle(
             x1, y1, x2, y2,
-            fill=COLOR_BTN, outline="#e65100", width=3,
+            fill=btn_color, outline="#ffffff", width=2,
             tags=(tags, "btn")
         )
         btn_txt = self.canvas.create_text(
@@ -201,9 +246,9 @@ class MoleGame:
         )
 
         def on_enter(e):
-            self.canvas.itemconfig(btn_bg, fill=COLOR_BTN_HOVER)
+            self.canvas.itemconfig(btn_bg, fill=hover_color)
         def on_leave(e):
-            self.canvas.itemconfig(btn_bg, fill=COLOR_BTN)
+            self.canvas.itemconfig(btn_bg, fill=btn_color)
         def on_press(e):
             command()
 
@@ -213,33 +258,29 @@ class MoleGame:
             self.canvas.tag_bind(item, "<Button-1>", on_press)
 
     def start_game(self) -> None:
-        """ゲームを開始する"""
+        """ゲーム開始"""
         self.canvas.delete("start_overlay")
         self.canvas.delete("gameover_overlay")
 
-        # 状態リセット
         self.is_playing = True
         self.score = 0
         self.time_left = GAME_TIME
-        for mole in self.moles:
-            self._hide_mole(mole)
+
+        for fan in self.fans:
+            self._hide_fan(fan)
 
         self.update_hud()
-
-        # タイマースタート
         self.tick_timer()
-        self.spawn_mole_loop()
+        self.spawn_fan_loop()
 
     def update_hud(self) -> None:
-        """HUD（スコア・残り時間）の更新"""
-        self.canvas.itemconfig(self.score_text, text=f"スコア: {self.score}")
-        
-        # 残り時間が少なくなったら文字を赤くする
-        color = "#ff5252" if self.time_left <= 5 else "#ffffff"
+        """HUD表示更新"""
+        self.canvas.itemconfig(self.score_text, text=f"ファンサ: {self.score}回")
+        color = "#ff3838" if self.time_left <= 5 else "#ffffff"
         self.canvas.itemconfig(self.time_text, text=f"残り時間: {self.time_left}秒", fill=color)
 
     def tick_timer(self) -> None:
-        """1秒ごとの時間カウントダウン"""
+        """1秒ごとのカウントダウン"""
         if not self.is_playing:
             return
 
@@ -252,221 +293,194 @@ class MoleGame:
         self.time_left -= 1
         self.timer_id = self.root.after(1000, self.tick_timer)
 
-    def spawn_mole_loop(self) -> None:
-        """一定間隔でモグラを穴から出現させるループ"""
+    def spawn_fan_loop(self) -> None:
+        """客席からうちわが掲げられるループ"""
         if not self.is_playing:
             return
 
-        # 隠れている穴を探す
-        hidden_indices = [i for i, m in enumerate(self.moles) if m["state"] == "hidden"]
+        hidden_indices = [i for i, f in enumerate(self.fans) if f["state"] == "hidden"]
         if hidden_indices:
-            # 穴をランダムに1〜2箇所選択
             num_to_spawn = 1
-            if len(hidden_indices) >= 3 and random.random() < 0.35:
+            if len(hidden_indices) >= 3 and random.random() < 0.4:
                 num_to_spawn = 2
-            
-            chosen_indices = random.sample(hidden_indices, min(num_to_spawn, len(hidden_indices)))
-            for idx in chosen_indices:
-                self.pop_up_mole(idx)
 
-        # 残り時間に応じて出現間隔を徐々に短く（難易度アップ）
+            chosen = random.sample(hidden_indices, min(num_to_spawn, len(hidden_indices)))
+            for idx in chosen:
+                self.pop_up_fan(idx)
+
+        # 残り時間に応じて出現スピードがアップ
         if self.time_left > 20:
-            next_delay = random.randint(700, 1100)
+            delay = random.randint(700, 1050)
         elif self.time_left > 10:
-            next_delay = random.randint(550, 900)
+            delay = random.randint(550, 850)
         else:
-            next_delay = random.randint(450, 750)
+            delay = random.randint(400, 680)
 
-        self.spawn_timer_id = self.root.after(next_delay, self.spawn_mole_loop)
+        self.spawn_timer_id = self.root.after(delay, self.spawn_fan_loop)
 
-    def pop_up_mole(self, index: int) -> None:
-        """指定の穴にモグラを出現させる"""
-        mole = self.moles[index]
-        mole["state"] = "up"
+    def pop_up_fan(self, index: int) -> None:
+        """指定位置にうちわを掲げる"""
+        fan = self.fans[index]
+        fan["state"] = "up"
 
-        cx, cy = self.holes[index]
-        # モグラを描画
-        self.draw_mole_at(cx, cy, tag=mole["tag"], is_hit=False)
+        # ランダムなファンサ文言とカラーを割り当て
+        msg, color = random.choice(FANSA_MESSAGES)
+        fan["msg"] = msg
+        fan["color"] = color
 
-        # 残り時間に応じて出ている時間を調整（800ms〜1300ms）
-        stay_time = max(600, int(1100 - (GAME_TIME - self.time_left) * 15))
-        mole["hide_id"] = self.root.after(stay_time, lambda: self._on_mole_timeout(index))
+        cx, cy = self.slots[index]
+        self.draw_uchiwa_at(cx, cy, msg, color, tag=fan["tag"], is_hit=False)
 
-    def _on_mole_timeout(self, index: int) -> None:
-        """叩かれずに時間切れで引っ込む"""
-        mole = self.moles[index]
-        if mole["state"] == "up":
-            self._hide_mole(mole)
+        # 出ている時間（時間経過で客席に下ろす）
+        stay_time = max(650, int(1150 - (GAME_TIME - self.time_left) * 16))
+        fan["hide_id"] = self.root.after(stay_time, lambda: self._on_fan_timeout(index))
 
-    def _hide_mole(self, mole: dict) -> None:
-        """モグラを穴に引っ込める"""
-        if mole["hide_id"] is not None:
-            self.root.after_cancel(mole["hide_id"])
-            mole["hide_id"] = None
-        self.canvas.delete(mole["tag"])
-        mole["state"] = "hidden"
+    def _on_fan_timeout(self, index: int) -> None:
+        """ファンサをもらえずうちわを下ろす"""
+        fan = self.fans[index]
+        if fan["state"] == "up":
+            self._hide_fan(fan)
 
-    def draw_mole_at(self, cx: float, cy: float, tag: str, is_hit: bool = False) -> None:
-        """指定位置にモグラを描画する"""
+    def _hide_fan(self, fan: dict) -> None:
+        """うちわを引っ込める"""
+        if fan["hide_id"] is not None:
+            self.root.after_cancel(fan["hide_id"])
+            fan["hide_id"] = None
+        self.canvas.delete(fan["tag"])
+        fan["state"] = "hidden"
+
+    def draw_uchiwa_at(
+        self, cx: float, cy: float, msg: str, border_color: str,
+        tag: str, is_hit: bool = False
+    ) -> None:
+        """うちわを描画する（コンサート用うちわ風）"""
         self.canvas.delete(tag)
 
-        mole_top = cy - 70
-        mole_w = 42
+        # うちわの中心位置（穴位置より少し上）
+        uy = cy - 25
+        r = 46  # うちわの半径
 
-        # 1. 耳（左右）
-        self.canvas.create_oval(
-            cx - 38, mole_top + 10, cx - 18, mole_top + 30,
-            fill="#6d4c41", outline="", tags=tag
+        # 1. 持ち手（柄）
+        self.canvas.create_rectangle(
+            cx - 5, uy + r - 4, cx + 5, uy + r + 38,
+            fill="#f5f5f5", outline="#9e9e9e", width=1, tags=tag
         )
+        # 持ち手の穴
         self.canvas.create_oval(
-            cx + 18, mole_top + 10, cx + 38, mole_top + 30,
-            fill="#6d4c41", outline="", tags=tag
-        )
-
-        # 2. 体・頭部
-        self.canvas.create_oval(
-            cx - mole_w, mole_top, cx + mole_w, cy + 10,
-            fill=COLOR_MOLE, outline="#4e342e", width=2, tags=tag
+            cx - 3, uy + r + 26, cx + 3, uy + r + 34,
+            fill="#0d0a1a", outline="#9e9e9e", width=1, tags=tag
         )
 
-        # 3. 口元・お腹（白い楕円）
-        self.canvas.create_oval(
-            cx - 24, cy - 35, cx + 24, cy - 2,
-            fill=COLOR_MOLE_BELLY, outline="", tags=tag
-        )
-
-        # 4. 鼻（赤／ピンクの丸）
-        self.canvas.create_oval(
-            cx - 10, cy - 35, cx + 10, cy - 21,
-            fill=COLOR_NOSE, outline="#d32f2f", width=1, tags=tag
-        )
-
-        # 5. 目（通常時 or 叩かれた時）
         if is_hit:
-            # 叩かれた時の目: 「× ×」
-            # 左目
-            self.canvas.create_line(cx - 24, mole_top + 23, cx - 12, mole_top + 33, fill="#3e2723", width=3, tags=tag)
-            self.canvas.create_line(cx - 12, mole_top + 23, cx - 24, mole_top + 33, fill="#3e2723", width=3, tags=tag)
-            # 右目
-            self.canvas.create_line(cx + 12, mole_top + 23, cx + 24, mole_top + 33, fill="#3e2723", width=3, tags=tag)
-            self.canvas.create_line(cx + 24, mole_top + 23, cx + 12, mole_top + 33, fill="#3e2723", width=3, tags=tag)
+            # ファンサを受けた時のハッピーエフェクト（ピンクオーラ）
+            self.canvas.create_oval(
+                cx - (r + 10), uy - (r + 10), cx + (r + 10), uy + (r + 10),
+                fill="", outline="#ff69b4", width=4, tags=tag
+            )
 
-            # 口: 波線（いたたた...）
-            self.canvas.create_line(cx - 8, cy - 12, cx + 8, cy - 12, fill="#5d4037", width=2, tags=tag)
+        # 2. うちわのフチ（蛍光モール風の華やかな外枠）
+        self.canvas.create_oval(
+            cx - (r + 4), uy - (r + 4), cx + (r + 4), uy + (r + 4),
+            fill=border_color, outline="#ffffff", width=2, tags=tag
+        )
 
-            # 頭の上の星（ピヨピヨ演出）
-            self._draw_star(cx - 25, mole_top - 5, tag)
-            self._draw_star(cx + 25, mole_top - 5, tag)
+        # 3. うちわの盤面（黒色ベース）
+        self.canvas.create_oval(
+            cx - r, uy - r, cx + r, uy + r,
+            fill="#121212", outline="", tags=tag
+        )
+
+        if is_hit:
+            # ファンサ成功時のメッセージ
+            self.canvas.create_text(
+                cx, uy - 4,
+                text="きゃー!!\n💕昇天💕",
+                fill="#ff2d75",
+                font=("Meiryo", 13, "bold"),
+                justify="center",
+                tags=tag
+            )
+            # キラキラハート
+            self.canvas.create_text(
+                cx - 32, uy - 32, text="💖", font=("Meiryo", 14), tags=tag
+            )
+            self.canvas.create_text(
+                cx + 32, uy - 32, text="✨", font=("Meiryo", 14), tags=tag
+            )
         else:
-            # つぶらな黒目
-            self.canvas.create_oval(
-                cx - 22, mole_top + 22, cx - 12, mole_top + 34,
-                fill="#212121", outline="", tags=tag
+            # 4. ファンサを求める文字（黄色・ピンクなどの蛍光デコ文字風）
+            # 影（立体フチ取り）
+            self.canvas.create_text(
+                cx + 1, uy + 1,
+                text=msg,
+                fill="#000000",
+                font=("Meiryo", 12, "bold"),
+                justify="center",
+                tags=tag
             )
-            self.canvas.create_oval(
-                cx + 12, mole_top + 22, cx + 22, mole_top + 34,
-                fill="#212121", outline="", tags=tag
+            # 本文
+            self.canvas.create_text(
+                cx, uy,
+                text=msg,
+                fill=border_color if border_color != "#121212" else "#ffe600",
+                font=("Meiryo", 12, "bold"),
+                justify="center",
+                tags=tag
             )
-            # 目のハイライト（白）
-            self.canvas.create_oval(
-                cx - 20, mole_top + 24, cx - 15, mole_top + 29,
-                fill="#ffffff", outline="", tags=tag
-            )
-            self.canvas.create_oval(
-                cx + 14, mole_top + 24, cx + 19, mole_top + 29,
-                fill="#ffffff", outline="", tags=tag
-            )
-
-            # ほっぺた（ピンク）
-            self.canvas.create_oval(
-                cx - 32, mole_top + 32, cx - 20, mole_top + 42,
-                fill="#ffab91", outline="", tags=tag
-            )
-            self.canvas.create_oval(
-                cx + 20, mole_top + 32, cx + 32, mole_top + 42,
-                fill="#ffab91", outline="", tags=tag
-            )
-
-            # 口: にっこり
-            self.canvas.create_arc(
-                cx - 10, cy - 25, cx + 10, cy - 8,
-                start=200, extent=140, style="arc",
-                outline="#4e342e", width=2, tags=tag
-            )
-
-        # 6. 穴の手前側のフチ（モグラの下半身が穴の中に隠れて見えるように重ね描画）
-        self.canvas.create_arc(
-            cx - 65, cy - 18, cx + 65, cy + 22,
-            start=180, extent=180, fill=COLOR_HOLE_OUTER,
-            outline="#3e2723", width=2, tags=tag
-        )
-
-    def _draw_star(self, sx: float, sy: float, tag: str) -> None:
-        """星マークを描画（ヒット演出）"""
-        self.canvas.create_text(
-            sx, sy,
-            text="★",
-            fill=COLOR_STAR,
-            font=("Meiryo", 16, "bold"),
-            tags=tag
-        )
 
     def on_click(self, event) -> None:
-        """キャンバスクリック時の処理"""
+        """キャンバスクリック（ファンサを返す）判定"""
         if not self.is_playing:
             return
 
         mx, my = event.x, event.y
 
-        # 出現中のモグラをクリックしたか判定
-        hit_any = False
-        for i, mole in enumerate(self.moles):
-            if mole["state"] != "up":
+        for i, fan in enumerate(self.fans):
+            if fan["state"] != "up":
                 continue
 
-            cx, cy = self.holes[i]
-            # モグラの当たり判定範囲（円または矩形近似）
-            # モグラの中心はおよそ (cx, cy - 30) 付近
-            dx = mx - cx
-            dy = my - (cy - 30)
-            distance = math.hypot(dx, dy)
+            cx, cy = self.slots[i]
+            uy = cy - 25
+            # うちわの中心 (cx, uy) からの距離判定
+            dist = math.hypot(mx - cx, my - uy)
 
-            if distance < 50:
-                self.hit_mole(i, mx, my)
-                hit_any = True
+            if dist < 52:
+                self.fansa_hit(i, mx, my)
                 break
 
-    def hit_mole(self, index: int, hit_x: float, hit_y: float) -> None:
-        """モグラを叩いたときの処理"""
-        mole = self.moles[index]
-        mole["state"] = "hit"
+    def fansa_hit(self, index: int, hit_x: float, hit_y: float) -> None:
+        """うちわにファンサを返した時の演出"""
+        fan = self.fans[index]
+        fan["state"] = "hit"
 
-        # タイマーキャンセル
-        if mole["hide_id"] is not None:
-            self.root.after_cancel(mole["hide_id"])
-            mole["hide_id"] = None
+        if fan["hide_id"] is not None:
+            self.root.after_cancel(fan["hide_id"])
+            fan["hide_id"] = None
 
         # スコア加算
-        self.score += 10
+        self.score += 1
         self.update_hud()
 
-        # 叩かれたモグラを描画
-        cx, cy = self.holes[index]
-        self.draw_mole_at(cx, cy, tag=mole["tag"], is_hit=True)
+        # 喜びのうちわを描画
+        cx, cy = self.slots[index]
+        self.draw_uchiwa_at(cx, cy, fan["msg"], fan["color"], tag=fan["tag"], is_hit=True)
 
-        # ポップアップテキスト（「+10 HIT!」）
-        self.show_hit_effect(cx, cy - 70)
+        # ファンサエフェクト（フワッと上がるハート & テキスト）
+        self.show_fansa_effect(cx, cy - 65)
 
-        # 少しピヨピヨした後に引っ込む（300ms後）
-        mole["hide_id"] = self.root.after(300, lambda: self._hide_mole(mole))
+        # 歓喜の後、350msで引っ込む
+        fan["hide_id"] = self.root.after(350, lambda: self._hide_fan(fan))
 
-    def show_hit_effect(self, x: float, y: float) -> None:
-        """叩いた瞬間のエフェクト表示"""
-        effect_tag = f"effect_{random.randint(1000, 9999)}"
+    def show_fansa_effect(self, x: float, y: float) -> None:
+        """ファンサ時のポップアップ演出"""
+        effect_tag = f"eff_{random.randint(1000, 9999)}"
+        words = ["FANSA! 💖", "KISS! 💋", "LOVE! 💕", "THANKS! ✨"]
+        chosen_word = random.choice(words)
+
         txt = self.canvas.create_text(
             x, y,
-            text="HIT! +10",
-            fill="#ffeb3b",
+            text=chosen_word,
+            fill="#ff77a9",
             font=("Meiryo", 14, "bold"),
             tags=effect_tag
         )
@@ -481,7 +495,7 @@ class MoleGame:
         float_up(0)
 
     def game_over(self) -> None:
-        """ゲーム終了時の処理"""
+        """ゲーム終了（ライブ終了）"""
         self.is_playing = False
 
         if self.timer_id is not None:
@@ -491,78 +505,90 @@ class MoleGame:
             self.root.after_cancel(self.spawn_timer_id)
             self.spawn_timer_id = None
 
-        for mole in self.moles:
-            self._hide_mole(mole)
+        for fan in self.fans:
+            self._hide_fan(fan)
 
         self.show_game_over_screen()
 
     def show_game_over_screen(self) -> None:
-        """ゲームオーバー（リザルト）画面の表示"""
+        """ライブ終了リザルト画面"""
         self.overlay_tag = "gameover_overlay"
 
         # 背景パネル
         self.canvas.create_rectangle(
-            60, 140, WINDOW_WIDTH - 60, 540,
-            fill="#ffffff", outline="#e65100", width=4,
+            60, 110, WINDOW_WIDTH - 60, 580,
+            fill="#160d29", outline="#ff2d75", width=4,
             tags=self.overlay_tag
         )
 
-        # タイムアップ表示
+        # ライブ終了
         self.canvas.create_text(
-            WINDOW_WIDTH / 2, 200,
-            text="タイムアップ！",
-            fill="#d32f2f",
-            font=("Meiryo", 24, "bold"),
+            WINDOW_WIDTH / 2, 170,
+            text="🎉 ライブ終了！ アンコール！ 🎉",
+            fill="#ff77a9",
+            font=("Meiryo", 20, "bold"),
             tags=self.overlay_tag
         )
 
-        # 最終スコア
+        # 届けたファンサ数
         self.canvas.create_text(
-            WINDOW_WIDTH / 2, 260,
-            text=f"あなたのスコア: {self.score} 点",
-            fill="#212121",
+            WINDOW_WIDTH / 2, 235,
+            text=f"ファンサを届けた回数: {self.score} 人！",
+            fill="#ffffff",
             font=("Meiryo", 22, "bold"),
             tags=self.overlay_tag
         )
 
-        # スコアに応じたランク評価メッセージ
-        if self.score >= 250:
-            rank_text = "称号: 伝説のもぐらマスター！✨\nものすごい速さです！"
-            rank_color = "#f57c00"
-        elif self.score >= 180:
-            rank_text = "称号: もぐらハンター名人！🏆\nすばらしい腕前！"
-            rank_color = "#388e3c"
-        elif self.score >= 100:
-            rank_text = "称号: 一人前のもぐらハンター！👍\nナイスファイト！"
-            rank_color = "#1976d2"
+        # アイドルランク評価
+        if self.score >= 26:
+            rank_title = "👑 称号: 伝説のドーム級トップアイドル！"
+            rank_desc = "神ファンサ連発！\n会場中のファン全員のハートを完全に射抜きました！💘✨"
+            rank_color = "#ffd700"
+        elif self.score >= 18:
+            rank_title = "🌟 称号: 大人気スーパースター！"
+            rank_desc = "圧倒的なファンサ対応！\n客席は黄色い大歓声に包まれています！💖"
+            rank_color = "#ff4081"
+        elif self.score >= 10:
+            rank_title = "✨ 称号: キラキラ輝く注目アイドル！"
+            rank_desc = "ナイスファンサ！\nたくさんのファンに笑顔と幸せを届けました！😊"
+            rank_color = "#00e5ff"
         else:
-            rank_text = "称号: 見習いハンター！🐣\n次はもっと叩けるかも！"
-            rank_color = "#616161"
+            rank_title = "🌱 称号: デビューしたての新星アイドル！"
+            rank_desc = "初ライブお疲れ様！\n次のステージではもっとたくさんのファンサを届けよう！🎤"
+            rank_color = "#b0bec5"
 
         self.canvas.create_text(
-            WINDOW_WIDTH / 2, 335,
-            text=rank_text,
+            WINDOW_WIDTH / 2, 310,
+            text=rank_title,
             fill=rank_color,
-            font=("Meiryo", 14, "bold"),
+            font=("Meiryo", 15, "bold"),
+            tags=self.overlay_tag
+        )
+        self.canvas.create_text(
+            WINDOW_WIDTH / 2, 375,
+            text=rank_desc,
+            fill="#f5f5f5",
+            font=("Meiryo", 13),
             justify="center",
             tags=self.overlay_tag
         )
 
         # もう一度遊ぶボタン
         self._create_button(
-            WINDOW_WIDTH / 2, 450,
-            text="もう一度あそぶ",
+            WINDOW_WIDTH / 2, 490,
+            text="次のライブへ！🎤",
             command=self.start_game,
-            tags=self.overlay_tag
+            tags=self.overlay_tag,
+            btn_color="#ff2d75",
+            hover_color="#e01058"
         )
 
 
 def main() -> None:
     root = tk.Tk()
-    MoleGame(root)
+    IdolFansaGame(root)
     root.mainloop()
 
 
 if __name__ == "__main__":
     main()
-
